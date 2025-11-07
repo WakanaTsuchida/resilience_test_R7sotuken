@@ -1,0 +1,243 @@
+
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width,initial-scale=1" />
+<title>高専生向けレジリエンステスト</title>
+<style>
+ :root { --gap: 16px; }
+ body { font-family: "Hiragino Kaku Gothic ProN", "Noto Sans JP", system-ui, sans-serif; line-height: 1.6; margin: 24px; }
+ h1 { font-size: 1.4rem; margin-bottom: 8px; }
+ .desc { color:#555; margin-bottom: 16px; }
+ .q { margin:16px 0; padding:12px; border:1px solid #ccc; border-radius:10px; }
+ .q h3 { margin:0 0 10px; font-size:1rem; }
+ .scale { display:grid; grid-template-columns:repeat(5,1fr); gap:8px; }
+ .scale label { display:flex; justify-content:center; align-items:center; gap:6px; border:1px solid #ccc; border-radius:8px; padding:8px; cursor:pointer; }
+ .actions { margin: 20px 0; display:flex; gap:12px; flex-wrap:wrap; }
+ button { padding:10px 16px; border:1px solid #333; border-radius:10px; background:#fff; cursor:pointer; }
+ button:hover { background:#f5f5f5; }
+ #result { margin-top:24px; padding:16px; border:1px solid #ddd; border-radius:10px; }
+ table { border-collapse: collapse; width: 100%; }
+ th, td { border-bottom: 1px solid #eee; padding: 8px; text-align: left; vertical-align: top; }
+ .eval { font-weight: 700; text-align: center; font-size: 1.1rem; letter-spacing: .08em; }
+ .note { white-space: pre-line; }
+ .legend { color:#666; font-size:0.9rem; margin-top: 6px; }
+</style>
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
+</head>
+<body>
+<h1>心理テスト</h1>
+<p class="desc">1=当てはまらない〜5=当てはまる を選んでください（全30問）。</p>
+<div id="formWrap"></div>
+<div class="actions">
+<button id="submitBtn">結果を見る</button>
+<button id="resetBtn">回答をクリア</button>
+</div>
+<div id="result" hidden>
+<h2>要素ごとのスコア</h2>
+<table id="summaryTable" aria-label="要素別スコア"></table>
+<div class="legend">評価ルール：◎（4以上）／◯（平均以上かつ4未満）／△（平均未満）</div>
+<h2 style="margin-top:20px;">各要素の改善方法</h2>
+<p id="comment" class="note"></p>
+<h2 style="margin-top:20px;">レーダーチャート</h2>
+<canvas id="chart" aria-label="5要素レーダーチャート（個人 vs 高専平均）" role="img"></canvas>
+</div>
+<script>
+/* ====== 定義 ====== */
+const DOMAINS = ["自尊心","感情調節","自己効力感","楽観性","人間関係"];
+// 短い説明（1行目）
+const SHORT_DESC = {
+ "自尊心":"自分を大切にする力",
+ "感情調節":"自分の気持ちに気づき、対応する力",
+ "自己効力感":"「やればできる」と思える力",
+ "楽観性":"出来事をバランスよくみる力",
+ "人間関係":"誰かを助け、誰かに助けられるつながりの力"
+};
+// 高専生の平均
+const BASE = { "自尊心":3.10, "感情調節":3.08, "自己効力感":2.81, "楽観性":2.92, "人間関係":3.79 };
+// アドバイス文（◎/◯/△で出し分け）
+const ADVICE = {
+ "自尊心": {
+   "◎":"強み維持：毎日1つ『できたこと』を記録し、月1回は新しい挑戦で自己概念を広げる。",
+   "◯":"積み上げ：週3回の小目標（15分作業など）→達成を見える化して自己評価を底上げ。",
+   "△":"自己受容：否定的セルフトークを『事実/解釈』に分け、根拠を検証して現実的に言い換える。"
+ },
+ "感情調節": {
+   "◎":"維持：『出来事-感情-対応』で短い振り返り→効いた対処法をレパートリー化。",
+   "◯":"整える：1分呼吸法（4吸/2止/6吐）を1日2回＋気分のトリガーをメモ。",
+   "△":"基礎：感情ラベリング（例：不安=30/100）→身体感覚へ注意→刺激から一旦離れる練習。"
+ },
+ "自己効力感": {
+   "◎":"拡張：タスクを教える/仕組み化で再現性UP→成功体験を他領域へ転移。",
+   "◯":"行動起点：タスクを『最初の2分』に分解→着手優先→即フィードバックで強化。",
+   "△":"道筋：目標→手順3つ→最初の一歩（5分）→『もし〜なら〜する』の事前対策をセット。"
+ },
+ "楽観性": {
+   "◎":"現実的楽観：最悪/最善/最頻シナリオを想定→準備できる行動を1つ決める。",
+   "◯":"リフレーミング：出来事の『学び/機会/支援者』を各1つ探す習慣を週3回。",
+   "△":"認知のバランス：自動思考を書き出し、反証と代替思考を1つ作るCBTミニワーク。"
+ },
+ "人間関係": {
+   "◎":"ネットワーク活用：月1回は感謝メッセージ/近況共有。弱い紐帯にも声かけ。",
+   "◯":"強化：『相談できる/雑談できる』相手を各2名リスト化→2週間で1回連絡。",
+   "△":"土台づくり：頼れる人1名に具体的依頼を練習（例：10分だけ話を聞いてほしい）。"
+ }
+};
+// 設問（逆転は内部で処理、UIには印を出さない）— 全30問
+const ITEMS = [
+ // 自尊心
+ { id:"se1", text:"私は前向きな人間だと思う", domain:"自尊心", reverse:false },
+ { id:"se2", text:"私は、自分に大体満足している", domain:"自尊心", reverse:false },
+ { id:"se3", text:"私はいくつも長所がある", domain:"自尊心", reverse:false },
+ { id:"se4", text:"私は少なくともほかの人と同じ程度には価値ある人間だと思う", domain:"自尊心", reverse:false },
+ { id:"se5", text:"私はたいていに人と同じように物事ができる", domain:"自尊心", reverse:false },
+ { id:"se6", text:"私には自分に誇りに思えることがほとんどない", domain:"自尊心", reverse:true  },
+ // 感情調節
+ { id:"er1", text:"私は自分の感情をあまり表に出さない", domain:"感情調節", reverse:false },
+ { id:"er2", text:"気持ちが不安定になる出来事があっても，感情がコントロールできなくなることはない", domain:"感情調節", reverse:false },
+ { id:"er3", text:"自分の気持ちがはっきりとわかる", domain:"感情調節", reverse:false },
+ { id:"er4", text:"自分の感情をコントロールする方法を知っている", domain:"感情調節", reverse:false },
+ { id:"er5", text:"気持ちが不安定な状態でも、最後まで作業をやり遂げることはできる方だ", domain:"感情調節", reverse:false },
+ { id:"er6", text:"ネガティブな感情を感じているときは、その感情が長く続いてしまう", domain:"感情調節", reverse:true },
+ // 自己効力感
+ { id:"seff1", text:"自分が立てた計画はうまくできる自信がある", domain:"自己効力感", reverse:false },
+ { id:"seff2", text:"あまり人に頼らない方だ", domain:"自己効力感", reverse:false },
+ { id:"seff3", text:"何かしようと思ったらすぐに取り掛かることができる", domain:"自己効力感", reverse:false },
+ { id:"seff4", text:"思いがけない問題が起こったときでも、うまく処理することができる", domain:"自己効力感", reverse:false },
+ { id:"seff5", text:"新しい友達を作るのが得意だ", domain:"自己効力感", reverse:false },
+ { id:"seff6", text:"ややこしく見えることには手を出そうとは思わない", domain:"自己効力感", reverse:true  },
+ // 楽観性
+ { id:"opt1", text:"それほど自信のないことでも結果的になんとかなると思う", domain:"楽観性", reverse:false },
+ { id:"opt2", text:"何事もあれこれ思い悩まない", domain:"楽観性", reverse:false },
+ { id:"opt3", text:"常に物事のいい面を見ようとする", domain:"楽観性", reverse:false },
+ { id:"opt4", text:"私は将来に対して前向きに考えている", domain:"楽観性", reverse:false },
+ { id:"opt5", text:"私は何をやってもうまくいく方だと思う", domain:"楽観性", reverse:false },
+ { id:"opt6", text:"昔の失敗や、いやだったことについてくよくよと悩んでしまう", domain:"楽観性", reverse:true  },
+ // 人間関係
+ { id:"rel1", text:"あなたの成果を評価してくれている人がいる", domain:"人間関係", reverse:false },
+ { id:"rel2", text:"私は必要なとき頼りにできる人がいる", domain:"人間関係", reverse:false },
+ { id:"rel3", text:"わがままを聞いてくれる相手がいる", domain:"人間関係", reverse:false },
+ { id:"rel4", text:"私には悩みを話せる相手がいる", domain:"人間関係", reverse:false },
+ { id:"rel5", text:"私が失敗をしたときには、助けてくれる人がいる", domain:"人間関係", reverse:false },
+ { id:"rel6", text:"自分はだれにも期待されていないと感じることがある", domain:"人間関係", reverse:true  },
+];
+// 1→5 の順
+const SCALE = [
+ { value:1, label:"1 当てはまらない" },
+ { value:2, label:"2 どちらかといえば当てはまらない" },
+ { value:3, label:"3 どちらともいえない" },
+ { value:4, label:"4 どちらかといえば当てはまる" },
+ { value:5, label:"5 当てはまる" },
+];
+/* ====== フォーム描画 ====== */
+const formWrap = document.getElementById("formWrap");
+(function renderForm(){
+ let idx = 1;
+ for (const domain of DOMAINS) {
+   ITEMS.filter(it => it.domain === domain).forEach(it => {
+     const wrap = document.createElement("div");
+     wrap.className = "q";
+     wrap.innerHTML = `<h3>Q${idx++}. ${it.text}</h3>`;
+     const scale = document.createElement("div");
+     scale.className = "scale";
+     SCALE.forEach(s => {
+       const lid = `${it.id}_${s.value}`;
+       const label = document.createElement("label");
+       const input = document.createElement("input");
+       input.type = "radio"; input.name = it.id; input.id = lid; input.value = String(s.value); input.required = true;
+       const span = document.createElement("span"); span.textContent = s.value;
+       label.appendChild(input); label.appendChild(span); scale.appendChild(label);
+     });
+     wrap.appendChild(scale);
+     formWrap.appendChild(wrap);
+   });
+ }
+})();
+/* ====== 計算ロジック ====== */
+function reverseIfNeeded(v, reverse){ return reverse ? (6 - v) : v; }
+function collectRaw() {
+ const raw = {}, missing = [];
+ for (const it of ITEMS) {
+   const el = document.querySelector(`input[name='${it.id}']:checked`);
+   if (!el) { missing.push(it.id); continue; }
+   raw[it.id] = parseInt(el.value, 10);
+ }
+ return { raw, missing };
+}
+function computeDomainAverages(raw) {
+ const sum = {}, cnt = {};
+ for (const it of ITEMS) {
+   const v = raw[it.id]; if (v == null) continue;
+   const adj = reverseIfNeeded(v, it.reverse);
+   sum[it.domain] = (sum[it.domain] ?? 0) + adj;
+   cnt[it.domain] = (cnt[it.domain] ?? 0) + 1;
+ }
+ const avg = {};
+ Object.keys(sum).forEach(d => avg[d] = sum[d] / cnt[d]);
+ return avg;
+}
+/* ====== ◎/◯/△ 判定 ====== */
+function iconEval(val, baseline){
+ if (val >= 4.0) return "◎";                // 4以上
+ if (val >= baseline && val < 4.0) return "◯"; // 平均以上かつ4未満
+ return "△";                                  // 平均未満
+}
+/* ====== 表示とコメント ====== */
+let chart;
+const summaryTable = document.getElementById("summaryTable");
+const commentEl = document.getElementById("comment");
+document.getElementById("submitBtn").addEventListener("click", () => {
+ const { raw, missing } = collectRaw();
+ if (missing.length) { alert("未回答の項目があります。すべての質問に回答してください。"); return; }
+ const averages = computeDomainAverages(raw);
+ // テーブル
+ summaryTable.innerHTML = `
+<tr><th>要素</th><th>個人平均</th><th>高専平均</th><th>評価</th></tr>
+   ${DOMAINS.map(d => {
+     const v = averages[d], b = BASE[d], ic = iconEval(v, b);
+     return `<tr>
+<td>${d}</td>
+<td>${v.toFixed(2)}</td>
+<td>${b.toFixed(2)}</td>
+<td class="eval">${ic}</td>
+</tr>`;
+   }).join("")}
+ `;
+ // 説明
+ const blocks = DOMAINS.map(d => {
+   const v = averages[d], b = BASE[d], ic = iconEval(v, b);
+   return `${d}：${SHORT_DESC[d]}\n→ ${ADVICE[d][ic]}`;
+ });
+ commentEl.textContent = blocks.join("\n\n");
+ // レーダーチャート
+ const labels = DOMAINS;
+ const userData = labels.map(l => averages[l] ?? 0);
+ const baseData = labels.map(l => BASE[l]);
+ const ctx = document.getElementById("chart");
+ if (chart) chart.destroy();
+ chart = new Chart(ctx, {
+   type: "radar",
+   data: {
+     labels,
+     datasets: [
+       { label: "あなた", data: userData, pointRadius: 3, borderWidth: 2, fill: true },
+       { label: "高専平均", data: baseData, pointRadius: 3, borderWidth: 2, fill: true }
+     ]
+   },
+   options: {
+     responsive: true,
+     plugins: { legend: { display: true, position: "top" } },
+     scales: { r: { suggestedMin: 1, suggestedMax: 5, ticks: { stepSize: 1, showLabelBackdrop: false } } },
+     elements: { line: { borderWidth: 2 } }
+   }
+ });
+ document.getElementById("result").hidden = false;
+});
+document.getElementById("resetBtn").addEventListener("click", () => {
+ document.querySelectorAll('input[type="radio"]').forEach(i => i.checked = false);
+ document.getElementById("result").hidden = true;
+});
+</script>
+</body>
+</html>
