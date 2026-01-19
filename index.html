@@ -39,7 +39,7 @@
 <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
 </head>
 <body>
-<h1>心理テスト</h1>
+<h1>テスト</h1>
 <p class="desc">1=当てはまらない〜5=当てはまる を選んでください（全30問）。</p>
 
 <div id="formWrap"></div>
@@ -50,13 +50,13 @@
 </div>
 
 <div id="result" hidden>
-  <h2>要素ごとのスコア（高専平均つき）</h2>
+  <h2>要素ごとのスコア</h2>
   <table id="summaryTable" aria-label="要素別スコア"></table>
   <div class="legend">
     評価ルール：◎（4以上）／◯（平均以上かつ4未満）／△（平均未満）
   </div>
 
-  <h2 style="margin-top:20px;">説明と改善のヒント（評価に応じて変化）</h2>
+  <h2 style="margin-top:20px;">説明と改善のヒント</h2>
   <p id="comment" class="note"></p>
 
   <h2 style="margin-top:20px;">レーダーチャート</h2>
@@ -408,5 +408,6 @@ document.getElementById("resetBtn").addEventListener("click", function() {
 </script>
 </body>
 </html>
+
 
 
